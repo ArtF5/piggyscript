@@ -1,0 +1,1715 @@
+-- ═══════════════════════════════════════════════════════
+--  ✨ PigAhub v8.8 beta — Пауза музыки + Инфо Godmode
+-- ═══════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+if playerGui:FindFirstChild("PigAhub") then
+    playerGui.PigAhub:Destroy()
+end
+
+-- ═══════════════ НАСТРОЙКИ ═══════════════
+local CONFIG_FILE = "PigAhubConfig.json"
+local Settings = {
+    Theme = "Dark", AccentColor = "Blue", Notifications = true, Watermark = true,
+    AntiAFK = false, FOV = 70, FlySpeed = 50, WalkSpeed = 50, MusicVolume = 1, MusicPitch = 1
+}
+
+local function SaveSettings()
+    pcall(function() writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(Settings)) end)
+end
+
+local function LoadSettings()
+    local success, result = pcall(function()
+        if isfile(CONFIG_FILE) then return game:GetService("HttpService"):JSONDecode(readfile(CONFIG_FILE)) end
+    end)
+    if success and result then
+        for k, v in pairs(result) do if Settings[k] ~= nil then Settings[k] = v end end
+    end
+end
+LoadSettings()
+
+local TweenInfo1 = TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local TweenInfo2 = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+local function tween(obj, props, info)
+    local t = TweenService:Create(obj, info or TweenInfo1, props)
+    t:Play()
+    return t
+end
+
+-- ═══════════════ КЕЙБИНДЫ ═══════════════
+local Binds = { Menu = Enum.KeyCode.RightShift, Fly = nil, Noclip = nil, Godmode = nil, Freecam = nil }
+local bindingFeature = nil
+local menuBtnRef, flyBtnRef, noclipBtnRef, godBtnRef, freecamBtnRef
+local toggleFlyUI, toggleNoclipUI, toggleGodUI, toggleFreecamUI
+local fcWarningTextRef
+
+-- ═══════════════ ОСНОВА ═══════════════
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PigAhub"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = playerGui
+
+local MusicSound = Instance.new("Sound")
+MusicSound.Parent = ScreenGui
+MusicSound.Looped = true
+MusicSound.Volume = Settings.MusicVolume
+MusicSound.PlaybackSpeed = Settings.MusicPitch
+
+-- ═══════════════ WATERMARK ═══════════════
+local WatermarkGui = Instance.new("ScreenGui")
+WatermarkGui.Name = "PigAhub_Watermark"
+WatermarkGui.ResetOnSpawn = false
+WatermarkGui.Parent = playerGui
+
+local Watermark = Instance.new("TextLabel")
+Watermark.Size = UDim2.new(0, 220, 0, 30)
+Watermark.Position = UDim2.new(0, 20, 0, 55) 
+Watermark.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+Watermark.BackgroundTransparency = 0.3
+Watermark.Text = "⚡ PigAhub v8.8 | " .. player.Name
+Watermark.Font = Enum.Font.GothamBold
+Watermark.TextSize = 13
+Watermark.TextColor3 = Color3.fromRGB(255, 255, 255)
+Watermark.ZIndex = 100
+Watermark.Parent = WatermarkGui
+Instance.new("UICorner", Watermark).CornerRadius = UDim.new(0, 6)
+local wmStroke = Instance.new("UIStroke", Watermark)
+wmStroke.Color = Color3.fromRGB(80, 120, 255)
+wmStroke.Thickness = 1
+Watermark.Visible = Settings.Watermark
+
+-- ═══════════════ TOASTS ═══════════════
+local ToastGui = Instance.new("ScreenGui")
+ToastGui.Name = "PigAhub_Toasts"
+ToastGui.ResetOnSpawn = false
+ToastGui.Parent = playerGui
+
+local ToastContainer = Instance.new("Frame")
+ToastContainer.Size = UDim2.new(0, 250, 1, -40)
+ToastContainer.Position = UDim2.new(1, -270, 0, 20)
+ToastContainer.BackgroundTransparency = 1
+ToastContainer.Parent = ToastGui
+Instance.new("UIListLayout", ToastContainer).VerticalAlignment = Enum.VerticalAlignment.Bottom
+Instance.new("UIListLayout", ToastContainer).Padding = UDim.new(0, 10)
+
+local function showToast(message, state)
+    if not Settings.Notifications then return end
+    local toast = Instance.new("Frame")
+    toast.Size = UDim2.new(1, 0, 0, 40)
+    toast.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    toast.BackgroundTransparency = 0.1
+    toast.ZIndex = 100
+    toast.Parent = ToastContainer
+    Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", toast)
+    stroke.Thickness = 2
+    stroke.Color = state == true and Color3.fromRGB(80, 220, 120) or (state == false and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(80, 120, 255))
+    
+    local lbl = Instance.new("TextLabel", toast)
+    lbl.Size = UDim2.new(1, -20, 1, 0)
+    lbl.Position = UDim2.new(0, 10, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = message
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextSize = 13
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 101
+
+    task.spawn(function()
+        while toast.Parent do
+            tween(stroke, {Transparency = 0.7}, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+            task.wait(0.6)
+            if not toast.Parent then break end
+            tween(stroke, {Transparency = 0}, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+            task.wait(0.6)
+        end
+    end)
+    toast.Position = UDim2.new(1, 20, 0, 0)
+    tween(toast, {Position = UDim2.new(0, 0, 0, 0)}, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
+    task.spawn(function()
+        task.wait(3)
+        tween(toast, {Position = UDim2.new(1, 20, 0, 0), BackgroundTransparency = 1}, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In))
+        task.wait(0.3)
+        toast:Destroy()
+    end)
+end
+
+-- ═══════════════ ТЕМА ═══════════════
+local AccentColors = { Blue = Color3.fromRGB(80, 120, 255), Red = Color3.fromRGB(255, 80, 80), Green = Color3.fromRGB(80, 220, 120), Purple = Color3.fromRGB(180, 100, 255), Pink = Color3.fromRGB(255, 100, 200) }
+local function getAccentColor() return AccentColors[Settings.AccentColor] or AccentColors.Blue end
+
+local Main, MainGradient, Stroke, TopBar, Title, Divider, TabBar
+local function ApplyTheme()
+    local accent = getAccentColor()
+    if Settings.Theme == "Dark" then
+        Main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+        MainGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 45)), ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 25))}
+        Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+        Stroke.Color = accent
+        wmStroke.Color = accent
+    else
+        Main.BackgroundColor3 = Color3.fromRGB(240, 240, 250)
+        MainGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, Color3.fromRGB(250, 250, 255)), ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 220, 235))}
+        Title.TextColor3 = Color3.fromRGB(30, 30, 40)
+        Stroke.Color = accent
+        wmStroke.Color = accent
+    end
+    Watermark.Visible = Settings.Watermark
+    Watermark.Text = "⚡ PigAhub v8.8 | " .. player.Name
+end
+
+-- ═══════════════ UI БАЗА ═══════════════
+local HintLabel = Instance.new("TextLabel")
+HintLabel.Size = UDim2.new(0, 380, 0, 60)
+HintLabel.Position = UDim2.new(1, -400, 1, -80)
+HintLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+HintLabel.BackgroundTransparency = 0.2
+HintLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+HintLabel.Text = "Нажмите " .. Binds.Menu.Name .. " чтобы открыть"
+HintLabel.Font = Enum.Font.GothamBold
+HintLabel.TextSize = 18
+HintLabel.Visible = false
+HintLabel.ZIndex = 100
+HintLabel.Parent = ScreenGui
+Instance.new("UICorner", HintLabel).CornerRadius = UDim.new(0, 10)
+
+local HintStroke = Instance.new("UIStroke", HintLabel)
+HintStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
+HintStroke.Color = Color3.fromRGB(80, 120, 255)
+HintStroke.Thickness = 3
+HintStroke.Transparency = 0.1
+
+local hintBlinkThread, hintFadeThread = nil, nil
+local function showHint()
+    HintLabel.Text = "Нажмите " .. (Binds.Menu and Binds.Menu.Name or "клавишу") .. " чтобы открыть"
+    HintLabel.Visible = true
+    HintLabel.BackgroundTransparency = 0.2
+    HintLabel.TextTransparency = 0 
+    HintStroke.Transparency = 0.1
+    
+    if hintBlinkThread then task.cancel(hintBlinkThread) end
+    hintBlinkThread = task.spawn(function()
+        while HintLabel.Visible do
+            tween(HintStroke, {Transparency = 0.8, Color = Color3.fromRGB(130, 160, 255)}, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+            task.wait(1)
+            if not HintLabel.Visible then break end
+            tween(HintStroke, {Transparency = 0.1, Color = Color3.fromRGB(80, 120, 255)}, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+            task.wait(1)
+        end
+    end)
+    
+    if hintFadeThread then task.cancel(hintFadeThread) end
+    hintFadeThread = task.spawn(function()
+        task.wait(5)
+        if not HintLabel.Visible then return end
+        tween(HintLabel, {BackgroundTransparency = 1, TextTransparency = 1}, TweenInfo.new(1.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+        tween(HintStroke, {Transparency = 1}, TweenInfo.new(1.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+        task.wait(1.5)
+        HintLabel.Visible = false
+    end)
+end
+
+local Shadow = Instance.new("ImageLabel")
+Shadow.BackgroundTransparency = 1
+Shadow.Image = "rbxassetid://5028857472"
+Shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+Shadow.ImageTransparency = 0.6
+Shadow.ScaleType = Enum.ScaleType.Slice
+Shadow.SliceCenter = Rect.new(24, 24, 276, 276)
+Shadow.Size = UDim2.new(0, 520, 0, 440)
+Shadow.Position = UDim2.new(0.5, -260, 0.5, -220)
+Shadow.ZIndex = 1
+Shadow.Parent = ScreenGui
+
+Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 500, 0, 420)
+Main.Position = UDim2.new(0.5, -250, 0.5, -210)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.ZIndex = 2
+Main.Parent = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 14)
+
+MainGradient = Instance.new("UIGradient")
+MainGradient.Color = ColorSequence.new{ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 28, 45)), ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 25))}
+MainGradient.Rotation = 135
+MainGradient.Parent = Main
+
+Stroke = Instance.new("UIStroke", Main)
+Stroke.Color = Color3.fromRGB(80, 120, 255)
+Stroke.Thickness = 2
+Stroke.Transparency = 0.2
+
+task.spawn(function()
+    while ScreenGui.Parent do
+        tween(Stroke, {Transparency = 0.8}, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+        task.wait(1.5)
+        if not ScreenGui.Parent then break end
+        tween(Stroke, {Transparency = 0.1}, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut))
+        task.wait(1.5)
+    end
+end)
+
+local ResizeHandle = Instance.new("TextButton")
+ResizeHandle.Size = UDim2.new(0, 20, 0, 20)
+ResizeHandle.Position = UDim2.new(1, -20, 1, -20)
+ResizeHandle.BackgroundTransparency = 1
+ResizeHandle.Text = "◢"
+ResizeHandle.TextColor3 = Color3.fromRGB(150, 150, 170)
+ResizeHandle.Font = Enum.Font.GothamBold
+ResizeHandle.TextSize = 18
+ResizeHandle.ZIndex = 10
+ResizeHandle.Parent = Main
+
+local isResizing = false
+local startSize, startMouse = Vector2.new(), Vector2.new()
+
+ResizeHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isResizing = true
+        startSize = Vector2.new(Main.AbsoluteSize.X, Main.AbsoluteSize.Y)
+        startMouse = Vector2.new(input.Position.X, input.Position.Y)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if isResizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local deltaX = input.Position.X - startMouse.X
+        local deltaY = input.Position.Y - startMouse.Y
+        local newWidth = math.clamp(startSize.X + deltaX, 450, 1000)
+        local newHeight = math.clamp(startSize.Y + deltaY, 300, 800)
+        Main.Size = UDim2.new(0, newWidth, 0, newHeight)
+        Shadow.Size = UDim2.new(0, newWidth + 20, 0, newHeight + 20)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isResizing = false end
+end)
+
+-- ═══════════════ TOPBAR ═══════════════
+TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 48)
+TopBar.BackgroundTransparency = 1
+TopBar.ZIndex = 3
+TopBar.Active = true
+TopBar.Parent = Main
+
+Title = Instance.new("TextLabel")
+Title.Text = "⚡ PigAhub"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.BackgroundTransparency = 1
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.Size = UDim2.new(0, 100, 1, 0)
+Title.ZIndex = 3
+Title.Parent = TopBar
+
+local ProfileFrame = Instance.new("Frame")
+ProfileFrame.Size = UDim2.new(0, 120, 0, 30)
+ProfileFrame.Position = UDim2.new(0, 125, 0.5, -15)
+ProfileFrame.BackgroundTransparency = 1
+ProfileFrame.ZIndex = 3
+ProfileFrame.Parent = TopBar
+
+local AvatarRing = Instance.new("Frame")
+AvatarRing.Size = UDim2.new(0, 28, 0, 28)
+AvatarRing.Position = UDim2.new(0, 0, 0.5, -14)
+AvatarRing.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+AvatarRing.BorderSizePixel = 0
+AvatarRing.ZIndex = 4
+AvatarRing.Parent = ProfileFrame
+Instance.new("UICorner", AvatarRing).CornerRadius = UDim.new(1, 0)
+
+local Avatar = Instance.new("ImageLabel")
+Avatar.Size = UDim2.new(0, 24, 0, 24)
+Avatar.Position = UDim2.new(0, 2, 0, 2)
+Avatar.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+Avatar.BorderSizePixel = 0
+Avatar.ZIndex = 5
+Avatar.Parent = AvatarRing
+Instance.new("UICorner", Avatar).CornerRadius = UDim.new(1, 0)
+
+local content = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+Avatar.Image = content
+
+local NameLabel = Instance.new("TextLabel")
+NameLabel.Text = player.DisplayName
+NameLabel.Font = Enum.Font.GothamBold
+NameLabel.TextSize = 12
+NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+NameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+NameLabel.BackgroundTransparency = 1
+NameLabel.Position = UDim2.new(0, 34, 0, 0)
+NameLabel.Size = UDim2.new(1, -34, 1, 0)
+NameLabel.ZIndex = 4
+NameLabel.Parent = ProfileFrame
+
+local SettingsBtn = Instance.new("TextButton")
+SettingsBtn.Size = UDim2.new(0, 24, 0, 24)
+SettingsBtn.Position = UDim2.new(1, -175, 0.5, -12)
+SettingsBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+SettingsBtn.Text = "⚙️"
+SettingsBtn.TextSize = 14
+SettingsBtn.AutoButtonColor = false
+SettingsBtn.ZIndex = 4
+SettingsBtn.Parent = TopBar
+Instance.new("UICorner", SettingsBtn).CornerRadius = UDim.new(0, 6)
+SettingsBtn.MouseEnter:Connect(function() tween(SettingsBtn, {BackgroundColor3 = Color3.fromRGB(60, 60, 80)}) end)
+SettingsBtn.MouseLeave:Connect(function() tween(SettingsBtn, {BackgroundColor3 = Color3.fromRGB(40, 40, 55)}) end)
+
+local VersionLabel = Instance.new("TextLabel")
+VersionLabel.Text = "v8.8 beta"
+VersionLabel.Font = Enum.Font.GothamMedium
+VersionLabel.TextSize = 12
+VersionLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+VersionLabel.TextXAlignment = Enum.TextXAlignment.Right
+VersionLabel.BackgroundTransparency = 1
+VersionLabel.Position = UDim2.new(1, -140, 0, 0)
+VersionLabel.Size = UDim2.new(0, 60, 1, 0)
+VersionLabel.ZIndex = 3
+VersionLabel.Parent = TopBar
+
+Divider = Instance.new("Frame")
+Divider.Size = UDim2.new(1, -40, 0, 1)
+Divider.Position = UDim2.new(0, 20, 0, 48)
+Divider.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+Divider.BackgroundTransparency = 0.5
+Divider.BorderSizePixel = 0
+Divider.ZIndex = 3
+Divider.Parent = Main
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 28, 0, 26) 
+CloseBtn.Position = UDim2.new(1, -36, 0, 11)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(100, 15, 15) 
+CloseBtn.Text = "X"
+CloseBtn.Font = Enum.Font.GothamBold 
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255) 
+CloseBtn.TextSize = 14
+CloseBtn.AutoButtonColor = false
+CloseBtn.ZIndex = 3
+CloseBtn.Parent = TopBar
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6) 
+CloseBtn.MouseEnter:Connect(function() tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(130, 20, 20)}) end)
+CloseBtn.MouseLeave:Connect(function() tween(CloseBtn, {BackgroundColor3 = Color3.fromRGB(100, 15, 15)}) end)
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 28, 0, 26)
+MinBtn.Position = UDim2.new(1, -72, 0, 11)
+MinBtn.BackgroundColor3 = Color3.fromRGB(220, 140, 30)
+MinBtn.Text = "—"
+MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 14
+MinBtn.AutoButtonColor = false
+MinBtn.ZIndex = 3
+MinBtn.Parent = TopBar
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+MinBtn.MouseButton1Click:Connect(function()
+    Main.Visible = false
+    Shadow.Visible = false
+    showHint()
+end)
+
+-- ═══════════════ НАСТРОЙКИ UI ═══════════════
+local SettingsUI = Instance.new("Frame", ScreenGui)
+SettingsUI.Size = UDim2.new(1, 0, 1, 0)
+SettingsUI.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+SettingsUI.BackgroundTransparency = 0.5
+SettingsUI.ZIndex = 500
+SettingsUI.Visible = false
+
+local SettingsFrame = Instance.new("Frame", SettingsUI)
+SettingsFrame.Size = UDim2.new(0, 400, 0, 350)
+SettingsFrame.Position = UDim2.new(0.5, -200, 0.5, -175)
+SettingsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+SettingsFrame.ZIndex = 501
+Instance.new("UICorner", SettingsFrame).CornerRadius = UDim.new(0, 12)
+Instance.new("UIStroke", SettingsFrame).Color = Color3.fromRGB(80, 120, 255)
+
+local SettingsTitle = Instance.new("TextLabel", SettingsFrame)
+SettingsTitle.Size = UDim2.new(1, 0, 0, 40)
+SettingsTitle.BackgroundTransparency = 1
+SettingsTitle.Text = "⚙️ Настройки"
+SettingsTitle.Font = Enum.Font.GothamBold
+SettingsTitle.TextSize = 18
+SettingsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+SettingsTitle.ZIndex = 502
+
+local CloseSettings = Instance.new("TextButton", SettingsFrame)
+CloseSettings.Size = UDim2.new(0, 30, 0, 30)
+CloseSettings.Position = UDim2.new(1, -40, 0, 5)
+CloseSettings.BackgroundColor3 = Color3.fromRGB(100, 15, 15)
+CloseSettings.Text = "X"
+CloseSettings.Font = Enum.Font.GothamBold
+CloseSettings.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseSettings.ZIndex = 502
+Instance.new("UICorner", CloseSettings).CornerRadius = UDim.new(0, 6)
+CloseSettings.MouseButton1Click:Connect(function() SettingsUI.Visible = false end)
+
+local SettingsScroll = Instance.new("ScrollingFrame", SettingsFrame)
+SettingsScroll.Size = UDim2.new(1, -20, 1, -60)
+SettingsScroll.Position = UDim2.new(0, 10, 0, 50)
+SettingsScroll.BackgroundTransparency = 1
+SettingsScroll.BorderSizePixel = 0
+SettingsScroll.ScrollBarThickness = 3
+SettingsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+SettingsScroll.ZIndex = 502
+
+local settingsLayout = Instance.new("UIListLayout", SettingsScroll)
+settingsLayout.Padding = UDim.new(0, 10)
+settingsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local scrollPadding = Instance.new("UIPadding", SettingsScroll)
+scrollPadding.PaddingTop = UDim.new(0, 5)
+scrollPadding.PaddingBottom = UDim.new(0, 10)
+scrollPadding.PaddingLeft = UDim.new(0, 5)
+scrollPadding.PaddingRight = UDim.new(0, 5)
+
+local function createCategory(text, order)
+    local Header = Instance.new("TextLabel", SettingsScroll)
+    Header.Size = UDim2.new(1, 0, 0, 35) 
+    Header.BackgroundTransparency = 1
+    Header.Text = text
+    Header.Font = Enum.Font.GothamBold
+    Header.TextSize = 14
+    Header.TextColor3 = Color3.fromRGB(130, 140, 160)
+    Header.TextXAlignment = Enum.TextXAlignment.Left
+    Header.ZIndex = 503
+    Header.LayoutOrder = order
+    local padding = Instance.new("UIPadding", Header)
+    padding.PaddingTop = UDim.new(0, 10)
+    return Header
+end
+
+local function createSettingRow(text, btnText, callback, order, showUnbind)
+    local Row = Instance.new("Frame", SettingsScroll)
+    Row.Size = UDim2.new(1, 0, 0, 40)
+    Row.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    Row.ZIndex = 503
+    Row.LayoutOrder = order
+    Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 8)
+    local rowStroke = Instance.new("UIStroke", Row)
+    rowStroke.Color = Color3.fromRGB(60, 60, 85)
+    rowStroke.Transparency = 0.5
+
+    local Lbl = Instance.new("TextLabel", Row)
+    Lbl.Size = UDim2.new(0.5, 0, 1, 0)
+    Lbl.Position = UDim2.new(0, 15, 0, 0)
+    Lbl.BackgroundTransparency = 1
+    Lbl.Text = text
+    Lbl.TextColor3 = Color3.fromRGB(230, 230, 245)
+    Lbl.Font = Enum.Font.GothamMedium
+    Lbl.TextSize = 14
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.ZIndex = 504
+
+    local Btn = Instance.new("TextButton", Row)
+    Btn.Size = UDim2.new(0, 100, 0, 28)
+    Btn.Position = UDim2.new(1, -115, 0.5, -14)
+    Btn.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
+    Btn.Text = btnText
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 12
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.AutoButtonColor = false
+    Btn.ZIndex = 504
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    
+    Btn.MouseButton1Click:Connect(function() callback(Btn) end)
+    
+    if showUnbind then
+        local unbindBtn = Instance.new("TextButton", Row)
+        unbindBtn.Size = UDim2.new(0, 24, 0, 28)
+        unbindBtn.Position = UDim2.new(1, -145, 0.5, -14)
+        unbindBtn.BackgroundColor3 = Color3.fromRGB(100, 15, 15)
+        unbindBtn.Text = "❌"
+        unbindBtn.Font = Enum.Font.GothamBold
+        unbindBtn.TextSize = 12
+        unbindBtn.AutoButtonColor = false
+        unbindBtn.ZIndex = 504
+        Instance.new("UICorner", unbindBtn).CornerRadius = UDim.new(0, 6)
+        unbindBtn.MouseButton1Click:Connect(function() callback(nil, true) end)
+    end
+    return Btn
+end
+
+createCategory("⌨️ Клавиши (Keybind)", 1)
+menuBtnRef = createSettingRow("Открыть меню", Binds.Menu.Name, function(btn, unbind)
+    if unbind then Binds.Menu = nil; menuBtnRef.Text = "Нет"; return end
+    bindingFeature = "Menu"; btn.Text = "Нажмите..."
+end, 2, true)
+flyBtnRef = createSettingRow("Fly (Полет)", Binds.Fly and Binds.Fly.Name or "Нет", function(btn, unbind)
+    if unbind then Binds.Fly = nil; flyBtnRef.Text = "Нет"; return end
+    bindingFeature = "Fly"; btn.Text = "Нажмите..."
+end, 3, true)
+noclipBtnRef = createSettingRow("Noclip", Binds.Noclip and Binds.Noclip.Name or "Нет", function(btn, unbind)
+    if unbind then Binds.Noclip = nil; noclipBtnRef.Text = "Нет"; return end
+    bindingFeature = "Noclip"; btn.Text = "Нажмите..."
+end, 4, true)
+godBtnRef = createSettingRow("Godmode", Binds.Godmode and Binds.Godmode.Name or "Нет", function(btn, unbind)
+    if unbind then Binds.Godmode = nil; godBtnRef.Text = "Нет"; return end
+    bindingFeature = "Godmode"; btn.Text = "Нажмите..."
+end, 5, true)
+freecamBtnRef = createSettingRow("Freecam", Binds.Freecam and Binds.Freecam.Name or "Нет", function(btn, unbind)
+    if unbind then Binds.Freecam = nil; freecamBtnRef.Text = "Нет"; return end
+    bindingFeature = "Freecam"; btn.Text = "Нажмите..."
+end, 6, true)
+
+createCategory("🎨 Внешний вид", 7)
+local toastToggleRef = createSettingRow("Уведомления (Toasts)", Settings.Notifications and "ВКЛ" or "ВЫКЛ", function(btn)
+    Settings.Notifications = not Settings.Notifications
+    btn.Text = Settings.Notifications and "ВКЛ" or "ВЫКЛ"
+    btn.BackgroundColor3 = Settings.Notifications and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(45, 45, 65)
+    SaveSettings()
+end, 8)
+local themeToggleRef = createSettingRow("Тема интерфейса", Settings.Theme, function(btn)
+    Settings.Theme = (Settings.Theme == "Dark") and "Light" or "Dark"
+    btn.Text = Settings.Theme; ApplyTheme(); SaveSettings()
+end, 9)
+
+local colorRow = Instance.new("Frame", SettingsScroll)
+colorRow.Size = UDim2.new(1, 0, 0, 50)
+colorRow.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+colorRow.ZIndex = 503
+colorRow.LayoutOrder = 10
+Instance.new("UICorner", colorRow).CornerRadius = UDim.new(0, 8)
+Instance.new("UIStroke", colorRow).Color = Color3.fromRGB(60, 60, 85)
+Instance.new("UIStroke", colorRow).Transparency = 0.5
+
+local colorLbl = Instance.new("TextLabel", colorRow)
+colorLbl.Size = UDim2.new(0.4, 0, 1, 0)
+colorLbl.Position = UDim2.new(0, 15, 0, 0)
+colorLbl.BackgroundTransparency = 1
+colorLbl.Text = "Цвет интерфейса"
+colorLbl.TextColor3 = Color3.fromRGB(230, 230, 245)
+colorLbl.Font = Enum.Font.GothamMedium
+colorLbl.TextSize = 14
+colorLbl.TextXAlignment = Enum.TextXAlignment.Left
+colorLbl.ZIndex = 504
+
+local colorButtons = Instance.new("Frame", colorRow)
+colorButtons.Size = UDim2.new(0.6, -20, 1, 0)
+colorButtons.Position = UDim2.new(0.4, 10, 0.5, -15)
+colorButtons.BackgroundTransparency = 1
+colorButtons.ZIndex = 504
+Instance.new("UIListLayout", colorButtons).FillDirection = Enum.FillDirection.Horizontal
+Instance.new("UIListLayout", colorButtons).Padding = UDim.new(0, 5)
+
+for name, c in pairs(AccentColors) do
+    local cBtn = Instance.new("TextButton", colorButtons)
+    cBtn.Size = UDim2.new(0, 20, 0, 20)
+    cBtn.BackgroundColor3 = c
+    cBtn.Text = ""
+    cBtn.AutoButtonColor = false
+    cBtn.ZIndex = 505
+    Instance.new("UICorner", cBtn).CornerRadius = UDim.new(1, 0)
+    cBtn.MouseButton1Click:Connect(function() Settings.AccentColor = name; ApplyTheme(); SaveSettings() end)
+end
+
+createCategory("⚙️ Утилиты", 11)
+local wmToggleRef = createSettingRow("Watermark", Settings.Watermark and "ВКЛ" or "ВЫКЛ", function(btn)
+    Settings.Watermark = not Settings.Watermark
+    btn.Text = Settings.Watermark and "ВКЛ" or "ВЫКЛ"
+    btn.BackgroundColor3 = Settings.Watermark and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(45, 45, 65)
+    ApplyTheme(); SaveSettings()
+end, 12)
+local afkToggleRef = createSettingRow("Anti-AFK", Settings.AntiAFK and "ВКЛ" or "ВЫКЛ", function(btn)
+    Settings.AntiAFK = not Settings.AntiAFK
+    btn.Text = Settings.AntiAFK and "ВКЛ" or "ВЫКЛ"
+    btn.BackgroundColor3 = Settings.AntiAFK and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(45, 45, 65)
+    SaveSettings()
+end, 13)
+
+if Settings.Notifications then toastToggleRef.BackgroundColor3 = Color3.fromRGB(80, 200, 120) end
+if Settings.Watermark then wmToggleRef.BackgroundColor3 = Color3.fromRGB(80, 200, 120) end
+if Settings.AntiAFK then afkToggleRef.BackgroundColor3 = Color3.fromRGB(80, 200, 120) end
+
+local ResetBtn = createSettingRow("Сбросить персонажа", "Убить", function(btn)
+    local char = player.Character
+    if char and char:FindFirstChildOfClass("Humanoid") then char.Humanoid.Health = 0 end
+end, 14)
+SettingsBtn.MouseButton1Click:Connect(function() SettingsUI.Visible = not SettingsUI.Visible end)
+
+-- ═══════════════ ВЫХОД ═══════════════
+local ModalBlur = Instance.new("Frame", ScreenGui)
+ModalBlur.Size = UDim2.new(1, 0, 1, 0)
+ModalBlur.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ModalBlur.BackgroundTransparency = 0.5
+ModalBlur.ZIndex = 500
+ModalBlur.Visible = false
+
+local ModalFrame = Instance.new("Frame", ModalBlur)
+ModalFrame.Size = UDim2.new(0, 380, 0, 220)
+ModalFrame.Position = UDim2.new(0.5, -190, 0.5, -110)
+ModalFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+ModalFrame.ZIndex = 502
+Instance.new("UICorner", ModalFrame).CornerRadius = UDim.new(0, 12)
+Instance.new("UIStroke", ModalFrame).Color = Color3.fromRGB(80, 120, 255)
+
+local ModalTitle = Instance.new("TextLabel", ModalFrame)
+ModalTitle.Size = UDim2.new(1, -20, 0, 30)
+ModalTitle.Position = UDim2.new(0, 15, 0, 15)
+ModalTitle.BackgroundTransparency = 1
+ModalTitle.Text = "Do you want to exit the GUI?"
+ModalTitle.TextColor3 = Color3.fromRGB(255, 80, 80)
+ModalTitle.Font = Enum.Font.GothamBold
+ModalTitle.TextSize = 16
+ModalTitle.TextXAlignment = Enum.TextXAlignment.Left
+ModalTitle.ZIndex = 503
+
+local ModalDesc = Instance.new("TextLabel", ModalFrame)
+ModalDesc.Size = UDim2.new(1, -30, 0, 90)
+ModalDesc.Position = UDim2.new(0, 15, 0, 50)
+ModalDesc.BackgroundTransparency = 1
+ModalDesc.Text = "You will not be able to use the gui or recover it unless you re-execute the script you are using."
+ModalDesc.TextColor3 = Color3.fromRGB(180, 180, 190)
+ModalDesc.Font = Enum.Font.GothamMedium
+ModalDesc.TextSize = 13
+ModalDesc.TextWrapped = true
+ModalDesc.TextXAlignment = Enum.TextXAlignment.Left
+ModalDesc.TextYAlignment = Enum.TextYAlignment.Top
+ModalDesc.ZIndex = 503
+
+local BtnContainer = Instance.new("Frame", ModalFrame)
+BtnContainer.Size = UDim2.new(1, -30, 0, 35)
+BtnContainer.Position = UDim2.new(0, 15, 1, -50)
+BtnContainer.BackgroundTransparency = 1
+BtnContainer.ZIndex = 503
+Instance.new("UIListLayout", BtnContainer).FillDirection = Enum.FillDirection.Horizontal
+Instance.new("UIListLayout", BtnContainer).Padding = UDim.new(0, 10)
+
+local YesBtn = Instance.new("TextButton", BtnContainer)
+YesBtn.Size = UDim2.new(0.5, -5, 1, 0)
+YesBtn.BackgroundColor3 = Color3.fromRGB(120, 20, 20)
+YesBtn.Text = "Yes"
+YesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+YesBtn.Font = Enum.Font.GothamBold
+YesBtn.TextSize = 14
+YesBtn.AutoButtonColor = false
+YesBtn.ZIndex = 504
+Instance.new("UICorner", YesBtn).CornerRadius = UDim.new(0, 8)
+
+local CancelBtn = Instance.new("TextButton", BtnContainer)
+CancelBtn.Size = UDim2.new(0.5, -5, 1, 0)
+CancelBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
+CancelBtn.Text = "Cancel"
+CancelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CancelBtn.Font = Enum.Font.GothamBold
+CancelBtn.TextSize = 14
+CancelBtn.AutoButtonColor = false
+CancelBtn.ZIndex = 504
+Instance.new("UICorner", CancelBtn).CornerRadius = UDim.new(0, 8)
+
+CloseBtn.MouseButton1Click:Connect(function() ModalBlur.Visible = true end)
+CancelBtn.MouseButton1Click:Connect(function() ModalBlur.Visible = false end)
+YesBtn.MouseButton1Click:Connect(function() 
+    ScreenGui:Destroy(); WatermarkGui:Destroy(); ToastGui:Destroy()
+end)
+
+-- ═══════════════ ВКЛАДКИ ═══════════════
+TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -40, 0, 36)
+TabBar.Position = UDim2.new(0, 20, 0, 56)
+TabBar.BackgroundTransparency = 1
+TabBar.ZIndex = 3
+TabBar.Parent = Main
+Instance.new("UIListLayout", TabBar).FillDirection = Enum.FillDirection.Horizontal
+Instance.new("UIListLayout", TabBar).Padding = UDim.new(0, 5)
+Instance.new("UIListLayout", TabBar).SortOrder = Enum.SortOrder.LayoutOrder
+
+local activeTab = "Players"
+local PlayersContent, MoveContent, ItemContent, SpeedContent, GodContent, MusicContent
+
+local function createTabButton(name, text, order)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 72, 1, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 11
+    btn.TextColor3 = Color3.fromRGB(150, 150, 170)
+    btn.AutoButtonColor = false
+    btn.ZIndex = 3
+    btn.LayoutOrder = order
+    btn.Parent = TabBar
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    btn.MouseButton1Click:Connect(function()
+        if activeTab == name then return end
+        activeTab = name
+        for _, child in pairs(TabBar:GetChildren()) do
+            if child:IsA("TextButton") then tween(child, {BackgroundColor3 = Color3.fromRGB(35, 35, 50), TextColor3 = Color3.fromRGB(150, 150, 170)}) end
+        end
+        tween(btn, {BackgroundColor3 = getAccentColor(), TextColor3 = Color3.fromRGB(255, 255, 255)})
+        
+        if PlayersContent then PlayersContent.Visible = (name == "Players") end
+        if MoveContent then MoveContent.Visible = (name == "Move") end
+        if ItemContent then ItemContent.Visible = (name == "Item") end
+        if SpeedContent then SpeedContent.Visible = (name == "Speed") end
+        if GodContent then GodContent.Visible = (name == "God") end
+        if MusicContent then MusicContent.Visible = (name == "Music") end
+    end)
+    return btn
+end
+
+createTabButton("Players", "Players", 1)
+createTabButton("Move", "Fly", 2)
+createTabButton("Item", "Item", 3)
+createTabButton("Speed", "Скорость", 4)
+createTabButton("God", "Godmode", 5)
+createTabButton("Music", "Music", 6)
+
+local Content = Instance.new("Frame")
+Content.Position = UDim2.new(0, 15, 0, 100)
+Content.Size = UDim2.new(1, -30, 1, -115)
+Content.BackgroundTransparency = 1
+Content.ZIndex = 3
+Content.Parent = Main
+
+PlayersContent = Instance.new("ScrollingFrame")
+PlayersContent.Size = UDim2.new(1, 0, 1, 0)
+PlayersContent.BackgroundTransparency = 1
+PlayersContent.BorderSizePixel = 0
+PlayersContent.Visible = true
+PlayersContent.ZIndex = 4
+PlayersContent.ScrollBarThickness = 4
+PlayersContent.AutomaticCanvasSize = Enum.AutomaticSize.Y
+PlayersContent.Parent = Content
+Instance.new("UIListLayout", PlayersContent).Padding = UDim.new(0, 10)
+
+MoveContent = Instance.new("Frame")
+MoveContent.Size = UDim2.new(1, 0, 1, 0)
+MoveContent.BackgroundTransparency = 1
+MoveContent.Visible = false
+MoveContent.ZIndex = 4
+MoveContent.Parent = Content
+Instance.new("UIListLayout", MoveContent).Padding = UDim.new(0, 10)
+
+ItemContent = Instance.new("Frame")
+ItemContent.Size = UDim2.new(1, 0, 1, 0)
+ItemContent.BackgroundTransparency = 1
+ItemContent.Visible = false
+ItemContent.ZIndex = 4
+ItemContent.Parent = Content
+
+SpeedContent = Instance.new("Frame")
+SpeedContent.Size = UDim2.new(1, 0, 1, 0)
+SpeedContent.BackgroundTransparency = 1
+SpeedContent.Visible = false
+SpeedContent.ZIndex = 4
+SpeedContent.Parent = Content
+
+GodContent = Instance.new("Frame")
+GodContent.Size = UDim2.new(1, 0, 1, 0)
+GodContent.BackgroundTransparency = 1
+GodContent.Visible = false
+GodContent.ZIndex = 4
+GodContent.Parent = Content
+Instance.new("UIListLayout", GodContent).Padding = UDim.new(0, 10)
+
+MusicContent = Instance.new("Frame")
+MusicContent.Size = UDim2.new(1, 0, 1, 0)
+MusicContent.BackgroundTransparency = 1
+MusicContent.Visible = false
+MusicContent.ZIndex = 4
+MusicContent.Parent = Content
+Instance.new("UIListLayout", MusicContent).Padding = UDim.new(0, 10)
+
+-- ═══════════════ УНИВЕРСАЛЬНЫЕ ФУНКЦИИ ═══════════════
+local function createButton(parent, text, icon, color, callback, order)
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, 0, 0, 44)
+    Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    Btn.Text = ""
+    Btn.AutoButtonColor = false
+    Btn.ZIndex = 4
+    Btn.LayoutOrder = order
+    Btn.Parent = parent
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 10)
+    Instance.new("UIStroke", Btn).Color = Color3.fromRGB(60, 60, 85)
+    
+    local Accent = Instance.new("Frame", Btn)
+    Accent.Size = UDim2.new(0, 4, 0, 24)
+    Accent.Position = UDim2.new(0, 10, 0.5, -12)
+    Accent.BackgroundColor3 = color
+    Accent.BorderSizePixel = 0
+    Accent.ZIndex = 5
+    Instance.new("UICorner", Accent).CornerRadius = UDim.new(1, 0)
+    
+    local BtnLabel = Instance.new("TextLabel", Btn)
+    BtnLabel.Text = (icon and (icon .. "  ") or "") .. text
+    BtnLabel.Font = Enum.Font.GothamMedium
+    BtnLabel.TextSize = 14
+    BtnLabel.TextColor3 = Color3.fromRGB(230, 230, 245)
+    BtnLabel.TextXAlignment = Enum.TextXAlignment.Left
+    BtnLabel.BackgroundTransparency = 1
+    BtnLabel.Position = UDim2.new(0, 26, 0, 0)
+    BtnLabel.Size = UDim2.new(1, -40, 1, 0)
+    BtnLabel.ZIndex = 5
+    
+    Btn.MouseEnter:Connect(function()
+        tween(Btn, {BackgroundColor3 = Color3.fromRGB(45, 45, 65)})
+        tween(Accent, {Size = UDim2.new(0, 6, 0, 28), Position = UDim2.new(0, 10, 0.5, -14)})
+        tween(BtnLabel, {Position = UDim2.new(0, 30, 0, 0)})
+    end)
+    Btn.MouseLeave:Connect(function()
+        tween(Btn, {BackgroundColor3 = Color3.fromRGB(35, 35, 50)})
+        tween(Accent, {Size = UDim2.new(0, 4, 0, 24), Position = UDim2.new(0, 10, 0.5, -12)})
+        tween(BtnLabel, {Position = UDim2.new(0, 26, 0, 0)})
+    end)
+    Btn.MouseButton1Click:Connect(function() if callback then callback() end end)
+    return Btn
+end
+
+local function createToggleRow(parent, text, callback, order, color)
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, 0, 0, 44)
+    Row.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    Row.ZIndex = 4
+    Row.LayoutOrder = order
+    Row.Parent = parent
+    Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 10)
+    Instance.new("UIStroke", Row).Color = Color3.fromRGB(60, 60, 85)
+
+    local Accent = Instance.new("Frame", Row)
+    Accent.Size = UDim2.new(0, 4, 0, 24)
+    Accent.Position = UDim2.new(0, 10, 0.5, -12)
+    Accent.BackgroundColor3 = color or Color3.fromRGB(80, 120, 255)
+    Accent.BorderSizePixel = 0
+    Accent.ZIndex = 5
+    Instance.new("UICorner", Accent).CornerRadius = UDim.new(1, 0)
+
+    local Lbl = Instance.new("TextLabel", Row)
+    Lbl.Text = text
+    Lbl.Font = Enum.Font.GothamMedium
+    Lbl.TextSize = 14
+    Lbl.TextColor3 = Color3.fromRGB(230, 230, 245)
+    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+    Lbl.BackgroundTransparency = 1
+    Lbl.Position = UDim2.new(0, 26, 0, 0)
+    Lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    Lbl.ZIndex = 5
+
+    local Btn = Instance.new("TextButton", Row)
+    Btn.Size = UDim2.new(0, 60, 0, 26)
+    Btn.Position = UDim2.new(1, -75, 0.5, -13)
+    Btn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    Btn.Text = "ВЫКЛ"
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 12
+    Btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Btn.AutoButtonColor = false
+    Btn.ZIndex = 5
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+
+    local state = false
+    local function toggle(forceState)
+        state = (forceState ~= nil) and forceState or not state
+        Btn.Text = state and "ВКЛ" or "ВЫКЛ"
+        tween(Btn, {BackgroundColor3 = state and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(60, 60, 80)})
+        tween(Btn, {TextColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200)})
+        callback(state)
+    end
+    Btn.MouseButton1Click:Connect(function() toggle() end)
+    return Row, Btn, toggle
+end
+
+-- ═══════════════ PLAYERS TAB ═══════════════
+local infJumpEnabled = false
+local _, infJumpBtn, toggleInfJump = createToggleRow(PlayersContent, "🦘 Infinite Jump", function(state)
+    infJumpEnabled = state; showToast(state and "Inf Jump ВКЛ" or "Inf Jump ВЫКЛ", state)
+end, 1, Color3.fromRGB(80, 220, 120))
+
+local currentFov = Settings.FOV
+local FovFrame = Instance.new("Frame", PlayersContent)
+FovFrame.Size = UDim2.new(1, 0, 0, 60)
+FovFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+FovFrame.ZIndex = 4
+FovFrame.LayoutOrder = 2
+Instance.new("UICorner", FovFrame).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", FovFrame).Color = Color3.fromRGB(60, 60, 85)
+
+local FovAccent = Instance.new("Frame", FovFrame)
+FovAccent.Size = UDim2.new(0, 4, 0, 24)
+FovAccent.Position = UDim2.new(0, 10, 0.5, -12)
+FovAccent.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+FovAccent.BorderSizePixel = 0
+FovAccent.ZIndex = 5
+Instance.new("UICorner", FovAccent).CornerRadius = UDim.new(1, 0)
+
+local FovLabel = Instance.new("TextLabel", FovFrame)
+FovLabel.Text = "FOV (Угол обзора)"
+FovLabel.Font = Enum.Font.GothamMedium
+FovLabel.TextSize = 14
+FovLabel.TextColor3 = Color3.fromRGB(230, 230, 245)
+FovLabel.TextXAlignment = Enum.TextXAlignment.Left
+FovLabel.BackgroundTransparency = 1
+FovLabel.Position = UDim2.new(0, 26, 0, 8)
+FovLabel.Size = UDim2.new(1, -90, 0, 20)
+FovLabel.ZIndex = 5
+
+local FovInput = Instance.new("TextBox", FovFrame)
+FovInput.Size = UDim2.new(0, 50, 0, 24)
+FovInput.Position = UDim2.new(1, -70, 0, 6)
+FovInput.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+FovInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+FovInput.Font = Enum.Font.GothamMedium
+FovInput.TextSize = 13
+FovInput.Text = tostring(currentFov)
+FovInput.ClearTextOnFocus = false
+FovInput.ZIndex = 5
+Instance.new("UICorner", FovInput).CornerRadius = UDim.new(0, 6)
+Instance.new("UIStroke", FovInput).Color = Color3.fromRGB(60, 60, 85)
+
+local FovTrack = Instance.new("Frame", FovFrame)
+FovTrack.Size = UDim2.new(1, -40, 0, 8)
+FovTrack.Position = UDim2.new(0, 26, 0, 38)
+FovTrack.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+FovTrack.BorderSizePixel = 0
+FovTrack.ZIndex = 5
+Instance.new("UICorner", FovTrack).CornerRadius = UDim.new(1, 0)
+
+local FovFill = Instance.new("Frame", FovTrack)
+FovFill.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+FovFill.BorderSizePixel = 0
+FovFill.ZIndex = 5
+Instance.new("UICorner", FovFill).CornerRadius = UDim.new(1, 0)
+
+local FovKnob = Instance.new("Frame", FovTrack)
+FovKnob.Size = UDim2.new(0, 16, 0, 16)
+FovKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+FovKnob.Position = UDim2.new(0, 0, 0.5, 0)
+FovKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+FovKnob.BorderSizePixel = 0
+FovKnob.ZIndex = 6
+Instance.new("UICorner", FovKnob).CornerRadius = UDim.new(1, 0)
+
+local function updateFovVisuals(value)
+    local rel = math.clamp((value - 70) / (120 - 70), 0, 1)
+    FovFill.Size = UDim2.new(rel, 0, 1, 0)
+    FovKnob.Position = UDim2.new(rel, 0, 0.5, 0)
+    workspace.CurrentCamera.FieldOfView = value
+end
+updateFovVisuals(currentFov)
+
+local fovDragging = false
+FovTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fovDragging = true
+        local rel = math.clamp((input.Position.X - FovTrack.AbsolutePosition.X) / FovTrack.AbsoluteSize.X, 0, 1)
+        currentFov = math.floor(rel * (120 - 70)) + 70; Settings.FOV = currentFov; updateFovVisuals(currentFov); FovInput.Text = tostring(currentFov); SaveSettings()
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if fovDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local rel = math.clamp((input.Position.X - FovTrack.AbsolutePosition.X) / FovTrack.AbsoluteSize.X, 0, 1)
+        currentFov = math.floor(rel * (120 - 70)) + 70; Settings.FOV = currentFov; updateFovVisuals(currentFov); FovInput.Text = tostring(currentFov); SaveSettings()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then fovDragging = false end end)
+FovInput.FocusLost:Connect(function()
+    local num = tonumber(FovInput.Text)
+    if num then num = math.clamp(num, 70, 120); currentFov = num; Settings.FOV = num; updateFovVisuals(num); FovInput.Text = tostring(num); SaveSettings() else FovInput.Text = tostring(currentFov) end
+end)
+
+-- ТЕЛЕПОРТ С ПОДСКАЗКАМИ (СТАРАЯ ВЕРСИЯ)
+local TpFrame = Instance.new("Frame", PlayersContent)
+TpFrame.Size = UDim2.new(1, 0, 0, 90)
+TpFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+TpFrame.ZIndex = 4
+TpFrame.LayoutOrder = 3
+Instance.new("UICorner", TpFrame).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", TpFrame).Color = Color3.fromRGB(60, 60, 85)
+
+local TpAccent = Instance.new("Frame", TpFrame)
+TpAccent.Size = UDim2.new(0, 4, 0, 24)
+TpAccent.Position = UDim2.new(0, 10, 0, 8)
+TpAccent.BackgroundColor3 = Color3.fromRGB(80, 120, 255)
+TpAccent.BorderSizePixel = 0
+TpAccent.ZIndex = 5
+Instance.new("UICorner", TpAccent).CornerRadius = UDim.new(1, 0)
+
+local TpLabel = Instance.new("TextLabel", TpFrame)
+TpLabel.Text = "Телепорт к игроку (Введите ник)"
+TpLabel.Font = Enum.Font.GothamMedium
+TpLabel.TextSize = 13
+TpLabel.TextColor3 = Color3.fromRGB(230, 230, 245)
+TpLabel.TextXAlignment = Enum.TextXAlignment.Left
+TpLabel.BackgroundTransparency = 1
+TpLabel.Position = UDim2.new(0, 26, 0, 8)
+TpLabel.Size = UDim2.new(1, -40, 0, 20)
+TpLabel.ZIndex = 5
+
+local TpInput = Instance.new("TextBox", TpFrame)
+TpInput.Size = UDim2.new(1, -40, 0, 30)
+TpInput.Position = UDim2.new(0, 26, 0, 35)
+TpInput.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+TpInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+TpInput.Font = Enum.Font.GothamMedium
+TpInput.TextSize = 13
+TpInput.PlaceholderText = "Например: ArtFire5"
+TpInput.TextXAlignment = Enum.TextXAlignment.Left
+TpInput.ClearTextOnFocus = false
+TpInput.ZIndex = 5
+Instance.new("UICorner", TpInput).CornerRadius = UDim.new(0, 6)
+Instance.new("UIStroke", TpInput).Color = Color3.fromRGB(60, 60, 85)
+
+local TpSuggestionsFrame = Instance.new("ScrollingFrame", TpFrame)
+TpSuggestionsFrame.Name = "TpSuggestions"
+TpSuggestionsFrame.Position = UDim2.new(0, 26, 0, 70)
+TpSuggestionsFrame.Size = UDim2.new(1, -40, 0, 0)
+TpSuggestionsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+TpSuggestionsFrame.BorderSizePixel = 0
+TpSuggestionsFrame.ZIndex = 10
+TpSuggestionsFrame.Visible = false
+TpSuggestionsFrame.ScrollBarThickness = 2
+TpSuggestionsFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+Instance.new("UICorner", TpSuggestionsFrame).CornerRadius = UDim.new(0, 6)
+local suggLayout = Instance.new("UIListLayout", TpSuggestionsFrame)
+suggLayout.Padding = UDim.new(0, 2)
+suggLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function teleportTo(target)
+    if target.Character and target.Character:FindFirstChild("HumanoidRootPart") and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        player.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -3)
+        showToast("Телепорт к " .. target.Name, true)
+    end
+end
+
+local function updateTpSuggestions()
+    for _, child in ipairs(TpSuggestionsFrame:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+
+    local search = TpInput.Text:lower()
+    if search == "" then
+        TpSuggestionsFrame.Visible = false
+        tween(TpFrame, {Size = UDim2.new(1, 0, 0, 90)})
+        return
+    end
+
+    local matches = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and (p.Name:lower():sub(1, #search) == search or p.DisplayName:lower():sub(1, #search) == search) then
+            table.insert(matches, p)
+        end
+    end
+
+    if #matches == 0 then
+        TpSuggestionsFrame.Visible = false
+        tween(TpFrame, {Size = UDim2.new(1, 0, 0, 90)})
+        return
+    end
+
+    TpSuggestionsFrame.Visible = true
+    local displayCount = math.min(#matches, 4)
+    local height = displayCount * 30 + (displayCount - 1) * 2
+    TpSuggestionsFrame.Size = UDim2.new(1, -40, 0, height)
+    TpSuggestionsFrame.CanvasSize = UDim2.new(0, 0, 0, #matches * 32)
+    
+    tween(TpFrame, {Size = UDim2.new(1, 0, 0, 90 + height + 10)})
+
+    for i, p in ipairs(matches) do
+        local btn = Instance.new("TextButton", TpSuggestionsFrame)
+        btn.Size = UDim2.new(1, 0, 0, 30)
+        btn.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
+        btn.Text = " " .. p.DisplayName .. " (@" .. p.Name .. ")"
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.GothamMedium
+        btn.TextSize = 12
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.AutoButtonColor = false
+        btn.ZIndex = 11
+        btn.LayoutOrder = i
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+
+        btn.MouseEnter:Connect(function()
+            tween(btn, {BackgroundColor3 = Color3.fromRGB(80, 120, 255)})
+        end)
+        btn.MouseLeave:Connect(function()
+            tween(btn, {BackgroundColor3 = Color3.fromRGB(45, 45, 65)})
+        end)
+
+        btn.MouseButton1Click:Connect(function()
+            TpInput.Text = p.Name
+            TpSuggestionsFrame.Visible = false
+            tween(TpFrame, {Size = UDim2.new(1, 0, 0, 90)})
+            teleportTo(p)
+        end)
+    end
+end
+
+TpInput:GetPropertyChangedSignal("Text"):Connect(updateTpSuggestions)
+
+TpInput.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        local search = TpInput.Text:lower()
+        if search == "" then return end
+        
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and (p.Name:lower():sub(1, #search) == search or p.DisplayName:lower():sub(1, #search) == search) then
+                teleportTo(p)
+                break
+            end
+        end
+    end
+    task.wait(0.1)
+    if UserInputService:GetFocusedTextBox() ~= TpInput then
+        TpSuggestionsFrame.Visible = false
+        tween(TpFrame, {Size = UDim2.new(1, 0, 0, 90)})
+    end
+end)
+
+-- СКОРОСТЬ
+createButton(PlayersContent, "Ускорение скорости", "⚡", Color3.fromRGB(255, 200, 60), function()
+    local char = player.Character; if char and char:FindFirstChildOfClass("Humanoid") then char.Humanoid.WalkSpeed = 50; showToast("Скорость: 50", true) end
+end, 4)
+createButton(PlayersContent, "Прыжок высоко", "🚀", Color3.fromRGB(80, 220, 120), function()
+    local char = player.Character; if char and char:FindFirstChildOfClass("Humanoid") then char.Humanoid.JumpPower = 100; showToast("Прыжок: 100", true) end
+end, 5)
+createButton(PlayersContent, "Сбросить настройки", "🔄", Color3.fromRGB(255, 130, 80), function()
+    local char = player.Character; if char and char:FindFirstChildOfClass("Humanoid") then char.Humanoid.WalkSpeed = 16; char.Humanoid.JumpPower = 50; showToast("Сброшено", true) end
+end, 6)
+
+-- FULLBRIGHT
+local isFullbright = false
+local originalLighting = {}
+local function toggleFullbright(state)
+    isFullbright = state
+    if state then
+        originalLighting = {Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd, Ambient = Lighting.Ambient}
+        Lighting.Brightness = 2; Lighting.ClockTime = 12; Lighting.FogEnd = 100000; Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        showToast("Fullbright ВКЛ", true)
+    else
+        if originalLighting.Brightness then
+            Lighting.Brightness = originalLighting.Brightness; Lighting.ClockTime = originalLighting.ClockTime; Lighting.FogEnd = originalLighting.FogEnd; Lighting.Ambient = originalLighting.Ambient
+        end
+        showToast("Fullbright ВЫКЛ", false)
+    end
+end
+createToggleRow(PlayersContent, "☀️ Fullbright", toggleFullbright, 7, Color3.fromRGB(255, 200, 60))
+
+-- FREECAM
+local isFreecam = false
+local freecamSpeed = 50
+local freecamBindName = "PigAhubFreecam"
+local camYaw, camPitch = 0, 0
+local function toggleFreecam(state)
+    isFreecam = state
+    local cam = workspace.CurrentCamera
+    if state then
+        cam.CameraType = Enum.CameraType.Scriptable
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        UserInputService.MouseIconEnabled = false
+        local c = cam.CFrame; camPitch, camYaw, _ = c:ToEulerAnglesYXZ()
+        RunService:BindToRenderStep(freecamBindName, Enum.RenderPriority.Camera.Value + 1, function(dt)
+            if not isFreecam then return end
+            local delta = UserInputService:GetMouseDelta()
+            if delta.Magnitude > 0 then
+                local sens = 0.005
+                camPitch = math.clamp(camPitch - delta.Y * sens, -math.pi/2 + 0.1, math.pi/2 - 0.1)
+                camYaw = camYaw - delta.X * sens
+            end
+            local moveVec = Vector3.new(0,0,0)
+            local look = CFrame.fromEulerAnglesYXZ(camPitch, camYaw, 0).LookVector
+            local right = CFrame.fromEulerAnglesYXZ(camPitch, camYaw, 0).RightVector
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVec += look end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVec -= look end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVec -= right end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVec += right end
+            local newPos = cam.CFrame.Position + (moveVec.Unit * freecamSpeed * dt)
+            if moveVec.Magnitude == 0 then newPos = cam.CFrame.Position end
+            cam.CFrame = CFrame.new(newPos) * CFrame.fromEulerAnglesYXZ(camPitch, camYaw, 0)
+        end)
+        showToast("Freecam ВКЛ", true)
+    else
+        RunService:UnbindFromRenderStep(freecamBindName)
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+        cam.CameraType = Enum.CameraType.Custom
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then cam.CFrame = char.HumanoidRootPart.CFrame end
+        showToast("Freecam ВЫКЛ", false)
+    end
+end
+local fcRow, fcBtn, toggleFreecamUI = createToggleRow(PlayersContent, "🎥 Freecam", toggleFreecam, 8, Color3.fromRGB(80, 120, 255))
+
+local fcWarningFrame = Instance.new("Frame", PlayersContent)
+fcWarningFrame.Size = UDim2.new(1, 0, 0, 35)
+fcWarningFrame.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+fcWarningFrame.LayoutOrder = 9
+fcWarningFrame.ZIndex = 5
+Instance.new("UICorner", fcWarningFrame).CornerRadius = UDim.new(0, 8)
+Instance.new("UIStroke", fcWarningFrame).Color = Color3.fromRGB(255, 100, 100)
+
+local fcWarningText = Instance.new("TextLabel", fcWarningFrame)
+fcWarningText.Size = UDim2.new(1, -10, 1, 0); fcWarningText.Position = UDim2.new(0, 5, 0, 0); fcWarningText.BackgroundTransparency = 1
+fcWarningText.TextColor3 = Color3.fromRGB(255, 255, 255); fcWarningText.Font = Enum.Font.GothamBold; fcWarningText.TextSize = 11
+fcWarningText.TextXAlignment = Enum.TextXAlignment.Center; fcWarningText.TextWrapped = true
+fcWarningText.ZIndex = 6
+fcWarningText.Text = "⚠️ Мышка закреплена. Нажмите " .. Binds.Menu.Name .. " чтобы разблокировать."
+
+local function updateFcWarning()
+    fcWarningText.Text = "⚠️ Мышка закреплена. Нажмите " .. (Binds.Menu and Binds.Menu.Name or "RightShift") .. " чтобы разблокировать."
+end
+
+-- ═══════════════ MOVE TAB ═══════════════
+local flyEnabled, noclipEnabled = false, false
+local bv, bg
+local GAME_DEFAULT_WALKSPEED = 16
+local flySpeedValue = Settings.FlySpeed
+local MAX_SPEED = 1000
+local flyToggleBtn, noclipToggleBtn
+
+local _, flyBtn, toggleFly = createToggleRow(MoveContent, "✈️ Fly (Полет)", function(state)
+    flyEnabled = state
+    if bv then pcall(function() bv:Destroy() end) bv = nil end; if bg then pcall(function() bg:Destroy() end) bg = nil end
+    local char = player.Character; if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart"); local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    if state then
+        bv = Instance.new("BodyVelocity"); bv.MaxForce = Vector3.new(9e9, 9e9, 9e9); bv.Velocity = Vector3.new(0,0,0); bv.P = 9e4; bv.Parent = hrp
+        bg = Instance.new("BodyGyro"); bg.MaxTorque = Vector3.new(9e9,9e9,9e9); bg.P = 9e4; bg.CFrame = hrp.CFrame; bg.Parent = hrp
+        hum.PlatformStand = true; showToast("Fly ВКЛ", true)
+    else
+        hum.PlatformStand = false; hum.WalkSpeed = GAME_DEFAULT_WALKSPEED; showToast("Fly ВЫКЛ", false)
+    end
+end, 1, Color3.fromRGB(80, 120, 255))
+flyToggleBtn = flyBtn; toggleFlyUI = toggleFly
+
+local _, noclipBtn, toggleNoclip = createToggleRow(MoveContent, "👻 Noclip", function(state)
+    noclipEnabled = state; local char = player.Character; if not char then return end
+    if state then
+        task.spawn(function()
+            while noclipEnabled and ScreenGui.Parent do
+                for _, v in pairs(char:GetDescendants()) do if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end end
+                task.wait(0.2)
+            end
+        end)
+        showToast("Noclip ВКЛ", true)
+    else
+        for _, v in pairs(char:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = true end end
+        showToast("Noclip ВЫКЛ", false)
+    end
+end, 2, Color3.fromRGB(180, 120, 255))
+noclipToggleBtn = noclipBtn; toggleNoclipUI = toggleNoclip
+
+local FlySpeedFrame = Instance.new("Frame", MoveContent)
+FlySpeedFrame.Size = UDim2.new(1, 0, 0, 60); FlySpeedFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50); FlySpeedFrame.ZIndex = 4; FlySpeedFrame.LayoutOrder = 3
+Instance.new("UICorner", FlySpeedFrame).CornerRadius = UDim.new(0, 10); Instance.new("UIStroke", FlySpeedFrame).Color = Color3.fromRGB(60, 60, 85)
+
+local FSLbl = Instance.new("TextLabel", FlySpeedFrame)
+FSLbl.Text = "Скорость полета"; FSLbl.Font = Enum.Font.GothamMedium; FSLbl.TextSize = 14; FSLbl.TextColor3 = Color3.fromRGB(230, 230, 245)
+FSLbl.TextXAlignment = Enum.TextXAlignment.Left; FSLbl.BackgroundTransparency = 1; FSLbl.Position = UDim2.new(0, 26, 0, 8); FSLbl.Size = UDim2.new(1, -90, 0, 20); FSLbl.ZIndex = 5
+
+local FSInput = Instance.new("TextBox", FlySpeedFrame)
+FSInput.Size = UDim2.new(0, 50, 0, 24); FSInput.Position = UDim2.new(1, -70, 0, 6); FSInput.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+FSInput.TextColor3 = Color3.fromRGB(255, 255, 255); FSInput.Font = Enum.Font.GothamMedium; FSInput.TextSize = 13; FSInput.Text = tostring(flySpeedValue)
+FSInput.ClearTextOnFocus = false; FSInput.ZIndex = 5; Instance.new("UICorner", FSInput).CornerRadius = UDim.new(0, 6); Instance.new("UIStroke", FSInput).Color = Color3.fromRGB(60, 60, 85)
+
+local FSTrack = Instance.new("Frame", FlySpeedFrame)
+FSTrack.Size = UDim2.new(1, -40, 0, 8); FSTrack.Position = UDim2.new(0, 26, 0, 38); FSTrack.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+FSTrack.BorderSizePixel = 0; FSTrack.ZIndex = 5; Instance.new("UICorner", FSTrack).CornerRadius = UDim.new(1, 0)
+
+local FSFill = Instance.new("Frame", FSTrack); FSFill.BackgroundColor3 = Color3.fromRGB(80, 120, 255); FSFill.ZIndex = 5; Instance.new("UICorner", FSFill).CornerRadius = UDim.new(1, 0)
+local FSKnob = Instance.new("Frame", FSTrack); FSKnob.Size = UDim2.new(0, 16, 0, 16); FSKnob.AnchorPoint = Vector2.new(0.5, 0.5); FSKnob.Position = UDim2.new(0, 0, 0.5, 0)
+FSKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); FSKnob.ZIndex = 6; Instance.new("UICorner", FSKnob).CornerRadius = UDim.new(1, 0)
+
+local function updateFSVisuals(value)
+    local rel = math.clamp((value - 10) / (MAX_SPEED - 10), 0, 1); FSFill.Size = UDim2.new(rel, 0, 1, 0); FSKnob.Position = UDim2.new(rel, 0, 0.5, 0)
+end
+updateFSVisuals(flySpeedValue)
+
+local fsDragging = false
+FSTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fsDragging = true; local rel = math.clamp((input.Position.X - FSTrack.AbsolutePosition.X) / FSTrack.AbsoluteSize.X, 0, 1)
+        flySpeedValue = math.floor(rel * (MAX_SPEED - 10)) + 10; Settings.FlySpeed = flySpeedValue; updateFSVisuals(flySpeedValue); FSInput.Text = tostring(flySpeedValue); SaveSettings()
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if fsDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local rel = math.clamp((input.Position.X - FSTrack.AbsolutePosition.X) / FSTrack.AbsoluteSize.X, 0, 1)
+        flySpeedValue = math.floor(rel * (MAX_SPEED - 10)) + 10; Settings.FlySpeed = flySpeedValue; updateFSVisuals(flySpeedValue); FSInput.Text = tostring(flySpeedValue); SaveSettings()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then fsDragging = false end end)
+FSInput.FocusLost:Connect(function()
+    local num = tonumber(FSInput.Text)
+    if num then num = math.clamp(num, 10, MAX_SPEED); flySpeedValue = num; Settings.FlySpeed = num; updateFSVisuals(num); FSInput.Text = tostring(num); SaveSettings() else FSInput.Text = tostring(flySpeedValue) end
+end)
+
+RunService.Heartbeat:Connect(function(dt)
+    if not flyEnabled or not bv or not bg or not bv.Parent or not bg.Parent then return end
+    local char = player.Character; if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart"); local hum = char:FindFirstChildOfClass("Humanoid"); local cam = workspace.CurrentCamera
+    if not hrp or not hum or not cam then return end
+    local camC = cam.CFrame; local camLook = camC.LookVector; local camRight = camC.RightVector; local move = hum.MoveDirection or Vector3.new(0,0,0)
+    local horizForward = Vector3.new(camLook.X, 0, camLook.Z).Unit; local horizRight = Vector3.new(camRight.X, 0, camRight.Z).Unit
+    local forwardInput = Vector3.new(move.X,0,move.Z):Dot(horizForward); local rightInput = Vector3.new(move.X,0,move.Z):Dot(horizRight)
+    local dir = (camLook * forwardInput) + (camRight * rightInput)
+    if dir.Magnitude > 1e-4 then
+        bv.Velocity = bv.Velocity:Lerp(dir.Unit * flySpeedValue, math.clamp(30 * dt, 0, 1))
+        local yawLook = Vector3.new(camLook.X, 0, camLook.Z)
+        if yawLook.Magnitude > 1e-6 then bg.CFrame = CFrame.new(hrp.Position, hrp.Position + yawLook.Unit) end
+    else bv.Velocity = bv.Velocity:Lerp(Vector3.new(0,0,0), math.clamp(30 * dt, 0, 1)) end
+end)
+
+-- ═══════════════ ITEM TAB ═══════════════
+local ScrollingFrame = Instance.new("ScrollingFrame", ItemContent)
+ScrollingFrame.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+ScrollingFrame.Position = UDim2.new(0, 0, 0, 0)
+ScrollingFrame.Size = UDim2.new(1, 0, 1, 0)
+ScrollingFrame.BorderSizePixel = 0
+ScrollingFrame.ZIndex = 4
+Instance.new("UICorner", ScrollingFrame).CornerRadius = UDim.new(0, 10)
+Instance.new("UIGridLayout", ScrollingFrame).CellSize = UDim2.new(0,90,0,90)
+local isTeleporting = false
+
+task.spawn(function()
+    while wait(2) do
+        if not ScreenGui.Parent then break end
+        local a = workspace:GetDescendants(); local items = {}; local itemframes = ScrollingFrame:GetChildren()
+        for i=1,#itemframes do if itemframes[i].ClassName == "TextButton" then itemframes[i]:Destroy() end end
+        for i=1,#a do if a[i].Name == "ItemPickupScript" and a[i].Parent:FindFirstChild("ClickDetector") then table.insert(items, a[i].Parent) end end
+        for i=1,#items do
+            local ItemFrame = Instance.new("TextButton", ScrollingFrame)
+            ItemFrame.Name = "ItemFrame"; ItemFrame.BackgroundColor3 = Color3.new(1, 1, 1); ItemFrame.BackgroundTransparency = 0.95
+            ItemFrame.Size = UDim2.new(0, 100, 0, 100); ItemFrame.Text = ""; ItemFrame.ZIndex = 5
+            local View = Instance.new("ViewportFrame", ItemFrame); View.Size = UDim2.new(1,0,1,0); View.BackgroundTransparency = 1; View.ZIndex = 5
+            local object = items[i]; local viewportclone = object:Clone(); viewportclone.Parent = View
+            local cam = Instance.new("Camera", viewportclone); cam.CameraType = Enum.CameraType.Fixed
+            cam.CFrame = CFrame.new(object.Position + Vector3.new(0,3,0), object.Position); View.CurrentCamera = cam
+
+            ItemFrame.MouseButton1Down:Connect(function()
+                if isTeleporting then return end
+                local char = game.Players.LocalPlayer.Character; if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                local hrp = char.HumanoidRootPart; local cd = object:FindFirstChildWhichIsA("ClickDetector", true); if not cd then return end
+                isTeleporting = true; local originalCFrame = hrp.CFrame; local originalCameraMode = player.CameraMode
+                local targetPos = object.Position; if object:IsA("Model") then targetPos = object:GetPivot().Position end
+                hrp.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0)); task.wait(0.3)
+                player.CameraMode = Enum.CameraMode.LockFirstPerson; workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, targetPos); task.wait(0.2)
+                if keypress then pcall(function() keypress(0x10) end) end; task.wait(1)
+                ScreenGui.Enabled = false; task.wait(0.1)
+                local viewport = workspace.CurrentCamera.ViewportSize; local centerX, centerY = viewport.X / 2, viewport.Y / 2
+                if mousemoveabs then pcall(function() mousemoveabs(centerX, centerY) end) end; task.wait(0.1)
+                if mouse1click then pcall(function() mouse1click() end) end
+                if VirtualUser then pcall(function() game:GetService("VirtualUser"):ClickButton1(Vector2.new(centerX, centerY)) end) end
+                task.wait(0.2); ScreenGui.Enabled = true; showToast("Залутано: " .. object.Name, true); task.wait(3)
+                player.CameraMode = originalCameraMode; if keyrelease then pcall(function() keyrelease(0x10) end) end
+                if char and char:FindFirstChild("HumanoidRootPart") then char.HumanoidRootPart.CFrame = originalCFrame end
+                isTeleporting = false
+            end)
+        end
+    end
+end)
+
+-- ═══════════════ SPEED TAB ═══════════════
+local speedValue = Settings.WalkSpeed
+local MAX_WALK_SPEED = 500
+local SpeedFrame = Instance.new("Frame")
+SpeedFrame.Size = UDim2.new(1, 0, 0, 110); SpeedFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50); SpeedFrame.ZIndex = 4; SpeedFrame.Parent = SpeedContent
+Instance.new("UICorner", SpeedFrame).CornerRadius = UDim.new(0, 10); Instance.new("UIStroke", SpeedFrame).Color = Color3.fromRGB(60, 60, 85)
+
+local SpeedAccent = Instance.new("Frame", SpeedFrame); SpeedAccent.Size = UDim2.new(0, 4, 0, 24); SpeedAccent.Position = UDim2.new(0, 10, 0, 8)
+SpeedAccent.BackgroundColor3 = Color3.fromRGB(255, 200, 60); SpeedAccent.BorderSizePixel = 0; SpeedAccent.ZIndex = 5; Instance.new("UICorner", SpeedAccent).CornerRadius = UDim.new(1, 0)
+
+local SetSpeedLabel = Instance.new("TextLabel", SpeedFrame); SetSpeedLabel.Size = UDim2.new(1, -30, 0, 20); SetSpeedLabel.Position = UDim2.new(0, 26, 0, 8); SetSpeedLabel.BackgroundTransparency = 1
+SetSpeedLabel.TextColor3 = Color3.fromRGB(230, 230, 245); SetSpeedLabel.Text = "Скорость ходьбы"; SetSpeedLabel.Font = Enum.Font.GothamMedium
+SetSpeedLabel.TextSize = 14; SetSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left; SetSpeedLabel.ZIndex = 5
+
+local SpeedInput = Instance.new("TextBox", SpeedFrame); SpeedInput.Size = UDim2.new(0, 55, 0, 24); SpeedInput.Position = UDim2.new(1, -70, 0, 6); SpeedInput.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+SpeedInput.TextColor3 = Color3.fromRGB(255, 255, 255); SpeedInput.Font = Enum.Font.GothamMedium; SpeedInput.TextSize = 13; SpeedInput.Text = tostring(speedValue); SpeedInput.ClearTextOnFocus = false
+SpeedInput.ZIndex = 5; Instance.new("UICorner", SpeedInput).CornerRadius = UDim.new(0, 6); Instance.new("UIStroke", SpeedInput).Color = Color3.fromRGB(60, 60, 85)
+
+local SpeedTrack = Instance.new("Frame", SpeedFrame); SpeedTrack.Size = UDim2.new(1, -40, 0, 8); SpeedTrack.Position = UDim2.new(0, 26, 0, 38)
+SpeedTrack.BackgroundColor3 = Color3.fromRGB(20, 20, 30); SpeedTrack.BorderSizePixel = 0; SpeedTrack.ZIndex = 5; Instance.new("UICorner", SpeedTrack).CornerRadius = UDim.new(1, 0)
+
+local SpeedFill = Instance.new("Frame", SpeedTrack); SpeedFill.BackgroundColor3 = Color3.fromRGB(255, 200, 60); SpeedFill.BorderSizePixel = 0; SpeedFill.ZIndex = 5; Instance.new("UICorner", SpeedFill).CornerRadius = UDim.new(1, 0)
+local SpeedKnob = Instance.new("Frame", SpeedTrack); SpeedKnob.Size = UDim2.new(0, 16, 0, 16); SpeedKnob.AnchorPoint = Vector2.new(0.5, 0.5); SpeedKnob.Position = UDim2.new(0, 0, 0.5, 0)
+SpeedKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); SpeedKnob.BorderSizePixel = 0; SpeedKnob.ZIndex = 6; Instance.new("UICorner", SpeedKnob).CornerRadius = UDim.new(1, 0)
+
+local function updateSpeedVisuals(value)
+    local rel = math.clamp((value - 16) / (MAX_WALK_SPEED - 16), 0, 1); SpeedFill.Size = UDim2.new(rel, 0, 1, 0); SpeedKnob.Position = UDim2.new(rel, 0, 0.5, 0)
+end
+updateSpeedVisuals(speedValue)
+
+local speedDragging = false
+SpeedTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        speedDragging = true; local rel = math.clamp((input.Position.X - SpeedTrack.AbsolutePosition.X) / SpeedTrack.AbsoluteSize.X, 0, 1)
+        speedValue = math.floor(rel * (MAX_WALK_SPEED - 16)) + 16; Settings.WalkSpeed = speedValue; updateSpeedVisuals(speedValue); SpeedInput.Text = tostring(speedValue); SaveSettings()
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if speedDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local rel = math.clamp((input.Position.X - SpeedTrack.AbsolutePosition.X) / SpeedTrack.AbsoluteSize.X, 0, 1)
+        speedValue = math.floor(rel * (MAX_WALK_SPEED - 16)) + 16; Settings.WalkSpeed = speedValue; updateSpeedVisuals(speedValue); SpeedInput.Text = tostring(speedValue); SaveSettings()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then speedDragging = false end end)
+SpeedInput.FocusLost:Connect(function()
+    local num = tonumber(SpeedInput.Text)
+    if num then num = math.clamp(num, 16, MAX_WALK_SPEED); speedValue = num; Settings.WalkSpeed = num; updateSpeedVisuals(num); SpeedInput.Text = tostring(num); SaveSettings() else SpeedInput.Text = tostring(speedValue) end
+end)
+
+local SetSpeedButton = Instance.new("TextButton")
+SetSpeedButton.Size = UDim2.new(1, -40, 0, 30); SetSpeedButton.Position = UDim2.new(0, 26, 0, 60); SetSpeedButton.BackgroundColor3 = Color3.fromRGB(80, 120, 255)
+SetSpeedButton.TextColor3 = Color3.fromRGB(255, 255, 255); SetSpeedButton.Font = Enum.Font.GothamBold; SetSpeedButton.TextSize = 14
+SetSpeedButton.Text = "Установить"; SetSpeedButton.AutoButtonColor = false; SetSpeedButton.ZIndex = 5; SetSpeedButton.Parent = SpeedFrame
+Instance.new("UICorner", SetSpeedButton).CornerRadius = UDim.new(0, 6)
+SetSpeedButton.MouseButton1Click:Connect(function()
+    local char = player.Character
+    if char and char:FindFirstChildOfClass("Humanoid") then
+        char.Humanoid.WalkSpeed = speedValue; tween(SetSpeedButton, {BackgroundColor3 = Color3.fromRGB(80, 200, 120)})
+        task.wait(0.2); tween(SetSpeedButton, {BackgroundColor3 = Color3.fromRGB(80, 120, 255)}); showToast("Скорость: " .. speedValue, true)
+    end
+end)
+
+-- ═══════════════ GODMODE TAB ═══════════════
+local godModeEnabled = false
+local godToggleRow, godBtn, toggleGod = createToggleRow(GodContent, "🛡️ Godmode (Бессмертие)", function(state)
+    godModeEnabled = state
+    local char = player.Character
+    if char then for _, v in pairs(char:GetDescendants()) do if v:IsA("BasePart") then v.CanTouch = not state end end end
+    showToast(state and "Godmode ВКЛ" or "Godmode ВЫКЛ", state)
+end, 1, Color3.fromRGB(80, 220, 120))
+godToggleBtn = godBtn; toggleGodUI = toggleGod
+
+-- ИНФО-НАДПИСЬ ПОД GODMODE
+local godInfo = Instance.new("TextLabel", GodContent)
+godInfo.Size = UDim2.new(1, 0, 0, 35)
+godInfo.BackgroundTransparency = 1
+godInfo.Text = "⚠️ Чтобы сбежать от убийцы, выключите Godmode"
+godInfo.TextColor3 = Color3.fromRGB(255, 120, 120)
+godInfo.Font = Enum.Font.GothamMedium
+godInfo.TextSize = 12
+godInfo.TextWrapped = true
+godInfo.TextXAlignment = Enum.TextXAlignment.Center
+godInfo.LayoutOrder = 2
+godInfo.ZIndex = 4
+
+RunService.Heartbeat:Connect(function()
+    if godModeEnabled then
+        local char = player.Character
+        if char then for _, v in pairs(char:GetDescendants()) do if v:IsA("BasePart") and v.CanTouch == true then v.CanTouch = false end end end
+    end
+end)
+
+-- ═══════════════ MUSIC TAB ═══════════════
+local MusicFrame = Instance.new("Frame", MusicContent)
+MusicFrame.Size = UDim2.new(1, 0, 0, 300) -- Увеличили высоту для новых кнопок
+MusicFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+MusicFrame.ZIndex = 4
+Instance.new("UICorner", MusicFrame).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", MusicFrame).Color = Color3.fromRGB(60, 60, 85)
+
+local MusicAccent = Instance.new("Frame", MusicFrame); MusicAccent.Size = UDim2.new(0, 4, 0, 24); MusicAccent.Position = UDim2.new(0, 10, 0, 8)
+MusicAccent.BackgroundColor3 = Color3.fromRGB(255, 100, 200); MusicAccent.BorderSizePixel = 0; MusicAccent.ZIndex = 5; Instance.new("UICorner", MusicAccent).CornerRadius = UDim.new(1, 0)
+
+local MusicTitle = Instance.new("TextLabel", MusicFrame); MusicTitle.Size = UDim2.new(1, -30, 0, 20); MusicTitle.Position = UDim2.new(0, 26, 0, 8); MusicTitle.BackgroundTransparency = 1
+MusicTitle.TextColor3 = Color3.fromRGB(230, 230, 245); MusicTitle.Text = "🎵 Music Player (Только для тебя)"
+MusicTitle.Font = Enum.Font.GothamMedium; MusicTitle.TextSize = 14; MusicTitle.TextXAlignment = Enum.TextXAlignment.Left; MusicTitle.ZIndex = 5
+
+local MusicIdInput = Instance.new("TextBox", MusicFrame); MusicIdInput.Size = UDim2.new(1, -40, 0, 30); MusicIdInput.Position = UDim2.new(0, 26, 0, 35)
+MusicIdInput.BackgroundColor3 = Color3.fromRGB(20, 20, 30); MusicIdInput.TextColor3 = Color3.fromRGB(255, 255, 255); MusicIdInput.Font = Enum.Font.GothamMedium
+MusicIdInput.TextSize = 13; MusicIdInput.PlaceholderText = "Введите ID (например: 1838402993)"; MusicIdInput.ClearTextOnFocus = false; MusicIdInput.ZIndex = 5
+Instance.new("UICorner", MusicIdInput).CornerRadius = UDim.new(0, 6); Instance.new("UIStroke", MusicIdInput).Color = Color3.fromRGB(60, 60, 85)
+
+local PlayBtn = Instance.new("TextButton", MusicFrame); PlayBtn.Size = UDim2.new(0.5, -31, 0, 30); PlayBtn.Position = UDim2.new(0, 26, 0, 75)
+PlayBtn.BackgroundColor3 = Color3.fromRGB(80, 200, 120); PlayBtn.Text = "▶ Играть"; PlayBtn.Font = Enum.Font.GothamBold; PlayBtn.TextSize = 13
+PlayBtn.TextColor3 = Color3.fromRGB(255, 255, 255); PlayBtn.AutoButtonColor = false; PlayBtn.ZIndex = 5; Instance.new("UICorner", PlayBtn).CornerRadius = UDim.new(0, 6)
+
+local StopBtn = Instance.new("TextButton", MusicFrame); StopBtn.Size = UDim2.new(0.5, -31, 0, 30); StopBtn.Position = UDim2.new(0.5, 5, 0, 75)
+StopBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30); StopBtn.Text = "⏹ Стоп"; StopBtn.Font = Enum.Font.GothamBold; StopBtn.TextSize = 13
+StopBtn.TextColor3 = Color3.fromRGB(255, 255, 255); StopBtn.AutoButtonColor = false; StopBtn.ZIndex = 5; Instance.new("UICorner", StopBtn).CornerRadius = UDim.new(0, 6)
+
+-- НОВЫЕ КНОПКИ ПАУЗЫ И ПРОДОЛЖЕНИЯ
+local PauseBtn = Instance.new("TextButton", MusicFrame); PauseBtn.Size = UDim2.new(0.5, -31, 0, 30); PauseBtn.Position = UDim2.new(0, 26, 0, 115)
+PauseBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 60); PauseBtn.Text = "⏸ Пауза"; PauseBtn.Font = Enum.Font.GothamBold; PauseBtn.TextSize = 13
+PauseBtn.TextColor3 = Color3.fromRGB(255, 255, 255); PauseBtn.AutoButtonColor = false; PauseBtn.ZIndex = 5; Instance.new("UICorner", PauseBtn).CornerRadius = UDim.new(0, 6)
+
+local ResumeBtn = Instance.new("TextButton", MusicFrame); ResumeBtn.Size = UDim2.new(0.5, -31, 0, 30); ResumeBtn.Position = UDim2.new(0.5, 5, 0, 115)
+ResumeBtn.BackgroundColor3 = Color3.fromRGB(80, 120, 255); ResumeBtn.Text = "▶ Продолжить"; ResumeBtn.Font = Enum.Font.GothamBold; ResumeBtn.TextSize = 13
+ResumeBtn.TextColor3 = Color3.fromRGB(255, 255, 255); ResumeBtn.AutoButtonColor = false; ResumeBtn.ZIndex = 5; Instance.new("UICorner", ResumeBtn).CornerRadius = UDim.new(0, 6)
+
+local NowPlayingLbl = Instance.new("TextLabel", MusicFrame); NowPlayingLbl.Size = UDim2.new(1, -40, 0, 20); NowPlayingLbl.Position = UDim2.new(0, 26, 0, 155); NowPlayingLbl.BackgroundTransparency = 1
+NowPlayingLbl.TextColor3 = Color3.fromRGB(150, 150, 170); NowPlayingLbl.Text = "Статус: Остановлено"
+NowPlayingLbl.Font = Enum.Font.GothamMedium; NowPlayingLbl.TextSize = 12; NowPlayingLbl.TextXAlignment = Enum.TextXAlignment.Left; NowPlayingLbl.ZIndex = 5
+
+local VolLbl = Instance.new("TextLabel", MusicFrame); VolLbl.Size = UDim2.new(1, -40, 0, 20); VolLbl.Position = UDim2.new(0, 26, 0, 185); VolLbl.BackgroundTransparency = 1
+VolLbl.TextColor3 = Color3.fromRGB(230, 230, 245); VolLbl.Text = "Громкость: " .. string.format("%.1f", Settings.MusicVolume)
+VolLbl.Font = Enum.Font.GothamMedium; VolLbl.TextSize = 12; VolLbl.TextXAlignment = Enum.TextXAlignment.Left; VolLbl.ZIndex = 5
+
+local VolTrack = Instance.new("Frame", MusicFrame); VolTrack.Size = UDim2.new(1, -40, 0, 8); VolTrack.Position = UDim2.new(0, 26, 0, 210)
+VolTrack.BackgroundColor3 = Color3.fromRGB(20, 20, 30); VolTrack.BorderSizePixel = 0; VolTrack.ZIndex = 5; Instance.new("UICorner", VolTrack).CornerRadius = UDim.new(1, 0)
+local VolFill = Instance.new("Frame", VolTrack); VolFill.BackgroundColor3 = Color3.fromRGB(255, 100, 200); VolFill.ZIndex = 5; Instance.new("UICorner", VolFill).CornerRadius = UDim.new(1, 0)
+local VolKnob = Instance.new("Frame", VolTrack); VolKnob.Size = UDim2.new(0, 16, 0, 16); VolKnob.AnchorPoint = Vector2.new(0.5, 0.5); VolKnob.Position = UDim2.new(0, 0, 0.5, 0)
+VolKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); VolKnob.ZIndex = 6; Instance.new("UICorner", VolKnob).CornerRadius = UDim.new(1, 0)
+
+local function updateVolVisuals(value)
+    local rel = math.clamp(value / 10, 0, 1); VolFill.Size = UDim2.new(rel, 0, 1, 0); VolKnob.Position = UDim2.new(rel, 0, 0.5, 0)
+    VolLbl.Text = "Громкость: " .. string.format("%.1f", value)
+end
+updateVolVisuals(Settings.MusicVolume)
+
+local volDragging = false
+VolTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        volDragging = true; local rel = math.clamp((input.Position.X - VolTrack.AbsolutePosition.X) / VolTrack.AbsoluteSize.X, 0, 1)
+        Settings.MusicVolume = rel * 10; MusicSound.Volume = Settings.MusicVolume; updateVolVisuals(Settings.MusicVolume); SaveSettings()
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if volDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local rel = math.clamp((input.Position.X - VolTrack.AbsolutePosition.X) / VolTrack.AbsoluteSize.X, 0, 1)
+        Settings.MusicVolume = rel * 10; MusicSound.Volume = Settings.MusicVolume; updateVolVisuals(Settings.MusicVolume); SaveSettings()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then volDragging = false end end)
+
+local PitchLbl = Instance.new("TextLabel", MusicFrame); PitchLbl.Size = UDim2.new(1, -40, 0, 20); PitchLbl.Position = UDim2.new(0, 26, 0, 230); PitchLbl.BackgroundTransparency = 1
+PitchLbl.TextColor3 = Color3.fromRGB(230, 230, 245); PitchLbl.Text = "Скорость (Pitch): " .. string.format("%.1fx", Settings.MusicPitch)
+PitchLbl.Font = Enum.Font.GothamMedium; PitchLbl.TextSize = 12; PitchLbl.TextXAlignment = Enum.TextXAlignment.Left; PitchLbl.ZIndex = 5
+
+local PitchTrack = Instance.new("Frame", MusicFrame); PitchTrack.Size = UDim2.new(1, -40, 0, 8); PitchTrack.Position = UDim2.new(0, 26, 0, 255)
+PitchTrack.BackgroundColor3 = Color3.fromRGB(20, 20, 30); PitchTrack.BorderSizePixel = 0; PitchTrack.ZIndex = 5; Instance.new("UICorner", PitchTrack).CornerRadius = UDim.new(1, 0)
+local PitchFill = Instance.new("Frame", PitchTrack); PitchFill.BackgroundColor3 = Color3.fromRGB(80, 120, 255); PitchFill.ZIndex = 5; Instance.new("UICorner", PitchFill).CornerRadius = UDim.new(1, 0)
+local PitchKnob = Instance.new("Frame", PitchTrack); PitchKnob.Size = UDim2.new(0, 16, 0, 16); PitchKnob.AnchorPoint = Vector2.new(0.5, 0.5); PitchKnob.Position = UDim2.new(0, 0, 0.5, 0)
+PitchKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); PitchKnob.ZIndex = 6; Instance.new("UICorner", PitchKnob).CornerRadius = UDim.new(1, 0)
+
+local function updatePitchVisuals(value)
+    local rel = math.clamp((value - 0.5) / (2.0 - 0.5), 0, 1); PitchFill.Size = UDim2.new(rel, 0, 1, 0); PitchKnob.Position = UDim2.new(rel, 0, 0.5, 0)
+    PitchLbl.Text = "Скорость (Pitch): " .. string.format("%.1fx", value)
+end
+updatePitchVisuals(Settings.MusicPitch)
+
+local pitchDragging = false
+PitchTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        pitchDragging = true; local rel = math.clamp((input.Position.X - PitchTrack.AbsolutePosition.X) / PitchTrack.AbsoluteSize.X, 0, 1)
+        Settings.MusicPitch = 0.5 + rel * 1.5; MusicSound.PlaybackSpeed = Settings.MusicPitch; updatePitchVisuals(Settings.MusicPitch); SaveSettings()
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if pitchDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local rel = math.clamp((input.Position.X - PitchTrack.AbsolutePosition.X) / PitchTrack.AbsoluteSize.X, 0, 1)
+        Settings.MusicPitch = 0.5 + rel * 1.5; MusicSound.PlaybackSpeed = Settings.MusicPitch; updatePitchVisuals(Settings.MusicPitch); SaveSettings()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then pitchDragging = false end end)
+
+PlayBtn.MouseButton1Click:Connect(function()
+    local id = MusicIdInput.Text:match("%d+")
+    if id then
+        MusicSound.SoundId = "rbxassetid://" .. id; MusicSound:Play()
+        NowPlayingLbl.Text = "Статус: Играет ID " .. id; NowPlayingLbl.TextColor3 = Color3.fromRGB(80, 220, 120); showToast("Музыка включена", true)
+    else
+        NowPlayingLbl.Text = "Статус: Введите корректный ID!"; NowPlayingLbl.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+StopBtn.MouseButton1Click:Connect(function()
+    MusicSound:Stop(); NowPlayingLbl.Text = "Статус: Остановлено"; NowPlayingLbl.TextColor3 = Color3.fromRGB(150, 150, 170); showToast("Музыка выключена", false)
+end)
+PauseBtn.MouseButton1Click:Connect(function()
+    if MusicSound.IsPlaying then
+        MusicSound:Pause()
+        NowPlayingLbl.Text = "Статус: Пауза"; NowPlayingLbl.TextColor3 = Color3.fromRGB(255, 200, 60)
+    end
+end)
+ResumeBtn.MouseButton1Click:Connect(function()
+    if not MusicSound.IsPlaying and MusicSound.TimePosition > 0 then
+        MusicSound:Resume()
+        NowPlayingLbl.Text = "Статус: Играет (Продолжение)"; NowPlayingLbl.TextColor3 = Color3.fromRGB(80, 220, 120)
+    end
+end)
+
+-- ═══════════════ ANTI-AFK ═══════════════
+local antiAFKConnection = nil
+local function toggleAntiAFK(state)
+    if state then
+        if antiAFKConnection then return end
+        antiAFKConnection = player.Idled:Connect(function()
+            game:GetService("VirtualUser"):CaptureController(); game:GetService("VirtualUser"):ClickButton2(Vector2.new(0,0)); showToast("Anti-AFK: Предотвращен кик", true)
+        end)
+        showToast("Anti-AFK ВКЛ", true)
+    else
+        if antiAFKConnection then antiAFKConnection:Disconnect(); antiAFKConnection = nil end
+        showToast("Anti-AFK ВЫКЛ", false)
+    end
+end
+if Settings.AntiAFK then toggleAntiAFK(true) end
+
+-- ═══════════════ ОБРАБОТКА КЛАВИШ ═══════════════
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if bindingFeature then
+        if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode ~= Enum.KeyCode.Escape then Binds[bindingFeature] = input.KeyCode else Binds[bindingFeature] = nil end
+        if bindingFeature == "Menu" then menuBtnRef.Text = Binds.Menu and Binds.Menu.Name or "Нет"; updateFcWarning()
+        elseif bindingFeature == "Fly" then flyBtnRef.Text = Binds.Fly and Binds.Fly.Name or "Нет"
+        elseif bindingFeature == "Noclip" then noclipBtnRef.Text = Binds.Noclip and Binds.Noclip.Name or "Нет"
+        elseif bindingFeature == "Godmode" then godBtnRef.Text = Binds.Godmode and Binds.Godmode.Name or "Нет"
+        elseif bindingFeature == "Freecam" then freecamBtnRef.Text = Binds.Freecam and Binds.Freecam.Name or "Нет" end
+        bindingFeature = nil; return
+    end
+    if gameProcessed then return end
+    if input.KeyCode == Binds.Menu then
+        SettingsUI.Visible = false; ModalBlur.Visible = false; Main.Visible = not Main.Visible; Shadow.Visible = Main.Visible
+        if Main.Visible then
+            HintLabel.Visible = false; if hintFadeThread then task.cancel(hintFadeThread) end; if hintBlinkThread then task.cancel(hintBlinkThread) end
+        else showHint() end
+    end
+    if Binds.Fly and input.KeyCode == Binds.Fly and toggleFlyUI then toggleFlyUI() end
+    if Binds.Noclip and input.KeyCode == Binds.Noclip and toggleNoclipUI then toggleNoclipUI() end
+    if Binds.Godmode and input.KeyCode == Binds.Godmode and toggleGodUI then toggleGodUI() end
+    if Binds.Freecam and input.KeyCode == Binds.Freecam and toggleFreecamUI then toggleFreecamUI() end
+    if input.KeyCode == Enum.KeyCode.Space and infJumpEnabled then
+        local char = player.Character; if char then local hum = char:FindFirstChildOfClass("Humanoid"); if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end end
+    end
+end)
+
+-- ═══════════════ СБРОС ═══════════════
+player.CharacterAdded:Connect(function(newChar)
+    flyEnabled = false; noclipEnabled = false
+    if bv then pcall(function() bv:Destroy() end) bv = nil end; if bg then pcall(function() bg:Destroy() end) bg = nil end
+    if flyToggleBtn then flyToggleBtn.Text = "ВЫКЛ"; flyToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80) end
+    if noclipToggleBtn then noclipToggleBtn.Text = "ВЫКЛ"; noclipToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80) end
+end)
+
+ApplyTheme()
+Main.Size = UDim2.new(0, 0, 0, 0); Main.Position = UDim2.new(0.5, 0, 0.5, 0); Shadow.Size = UDim2.new(0, 0, 0, 0); Shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+task.wait(0.1)
+tween(Main, {Size = UDim2.new(0, 500, 0, 420), Position = UDim2.new(0.5, -250, 0.5, -210)}, TweenInfo2)
+tween(Shadow, {Size = UDim2.new(0, 520, 0, 440), Position = UDim2.new(0.5, -260, 0.5, -220)}, TweenInfo2)
+
+local dragging, dragInput, dragStart, startPos
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = input.Position; startPos = Main.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+TopBar.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        Shadow.Position = UDim2.new(Main.Position.X.Scale, Main.Position.X.Offset - 10, Main.Position.Y.Scale, Main.Position.Y.Offset - 10)
+    end
+end)
